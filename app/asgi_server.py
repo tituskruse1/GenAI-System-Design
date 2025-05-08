@@ -1,11 +1,13 @@
+import os
+
 from fastapi import FastAPI, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import psycopg
+from utils import RedisABTestMiddleware, redis_client, create_session
 
 # from psycopg.rows import dict_rows
-import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 # Database connection configuration
 DB_CONFIG = {
@@ -27,6 +29,19 @@ def get_db_connection():
         raise
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """This function handles the startup and shutdown events of the fastapi app."""
+    app.state.session = create_session()
+    app.state.db_conn = get_db_connection()
+    redis_client.set("experiments", ["llama-3.3-70b", "mistral-31-24b"])
+
+    yield
+
+    app.state.session.close()
+    redis_client.close()
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="GenAI System Design API",
@@ -41,6 +56,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
+)
+
+app.add_middleware(
+    RedisABTestMiddleware,
 )
 
 
