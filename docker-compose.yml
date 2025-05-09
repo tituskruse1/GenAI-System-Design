@@ -7,6 +7,29 @@ services:
       - "8000:8000"
     expose:
       - 8000
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: vectordb
+      POSTGRES_URL: postgres
+      REDIS_HOST: redis
+    links:
+      - postgres
+      - redis
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./app/asgi_server.py
+          target: ./asgi_server.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: false
+    env_file:
+      - .env
 
   # mistral:
   #   image: ai/mistral:latest
@@ -49,8 +72,15 @@ services:
     image: redis/redis-stack-server:latest
     ports:
       - "6379:6379"
+    expose:
+      - 5432
     volumes:      
     - cache:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   cache:
