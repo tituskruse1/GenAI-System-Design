@@ -1,10 +1,14 @@
 import os
 
-from fastapi import FastAPI, UploadFile, File, Depends
+from fastapi import FastAPI, UploadFile, File, Depends, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import psycopg
-from utils import RedisABTestMiddleware, redis_client, create_session
+import psycopg2
+from utils import RedisABTestMiddleware, redis_client, create_session, VeniceApiWrapper
+
+import logging
+
+logger = logging.Logger(__name__)
 
 # from psycopg.rows import dict_rows
 from contextlib import asynccontextmanager
@@ -22,11 +26,21 @@ DB_CONFIG = {
 def get_db_connection():
     """Create and return a database connection."""
     try:
-        conn = psycopg.connect(**DB_CONFIG)
+        conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except Exception as e:
         print(f"Error connecting to database: {e}")
         raise
+
+
+# @contextmanager
+def get_db():
+    """Database connection dependency."""
+    conn = get_db_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @asynccontextmanager
@@ -34,7 +48,11 @@ async def lifespan(app: FastAPI):
     """This function handles the startup and shutdown events of the fastapi app."""
     app.state.session = create_session()
     app.state.db_conn = get_db_connection()
-    redis_client.set("experiments", ["llama-3.3-70b", "mistral-31-24b"])
+    redis_client.rpush(
+        "experiments", "llama-3.3-70b", "mistral-31-24b"
+    )  ### ONLY USED FOR DEV SEEDING
+
+    app.state.model_api = VeniceApiWrapper(app.state.session)
 
     yield
 
@@ -47,6 +65,7 @@ app = FastAPI(
     title="GenAI System Design API",
     description="API for GenAI System Design",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -61,12 +80,6 @@ app.add_middleware(
 app.add_middleware(
     RedisABTestMiddleware,
 )
-
-
-@app.get("/")
-async def root():
-    """Root endpoint that returns a welcome message."""
-    return {"message": "Welcome to GenAI System Design API"}
 
 
 @app.post("/ingest_img")
@@ -84,32 +97,26 @@ async def ingest_img(file: UploadFile = File(...)):
     return {"filename": file.filename, "content_type": file.content_type}
 
 
+@app.post("/ask_question")
+async def ask_question(request: Request, prompt: str = Form(...)):
+    """
+    Endpoint to handle question prompts.
+    The Form(...) parameter means this is a required field.
+    """
+    response = app.state.model_api.get_answer(model=request.state.model, prompt=prompt)
+    return {"response": response}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
 
 
-# @contextmanager
-def get_db():
-    """Database connection dependency."""
-    conn = get_db_connection()
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
-@app.get("/test-db")
-async def test_db(db: psycopg.Connection = Depends(get_db)):
-    """Test endpoint to verify database connection."""
-    try:
-        with db.cursor() as cur:
-            cur.execute("SELECT version();")
-            version = cur.fetchone()
-        return {"status": "connected", "version": version}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+@app.get("/")
+async def root():
+    """Root endpoint that returns a welcome message."""
+    return {"message": "Welcome to GenAI System Design API"}
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 fastapi
 uvicorn
 python-multipart
-psycopg3
+psycopg2
 redis
 requests

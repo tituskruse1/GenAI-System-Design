@@ -12,8 +12,10 @@ services:
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: vectordb
       POSTGRES_URL: postgres
+      REDIS_HOST: redis
     links:
       - postgres
+      - redis
     develop:
       watch:
         - action: sync+restart
@@ -69,6 +71,8 @@ services:
     image: redis/redis-stack-server:latest
     ports:
       - "6379:6379"
+    expose:
+      - 5432
     volumes:      
     - cache:/data
     healthcheck:
